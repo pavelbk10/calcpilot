@@ -1,0 +1,9 @@
+import {test} from 'node:test';import assert from 'node:assert/strict';import {payment,principal,schedule,affordability,savings,refinance,carCost} from '../src/lib/finance.mjs';
+test('zero interest loan and inverse',()=>{assert.equal(payment(12000,0,1),1000);assert.equal(principal(1000,0,1),12000)});
+test('reference payment and inverse',()=>{assert.ok(Math.abs(payment(100000,6,30)-599.550525)<.00001);assert.ok(Math.abs(principal(payment(250000,5,25),5,25)-250000)<1e-7)});
+test('amortization repays principal and ends at zero',()=>{const rows=schedule(250000,5,25);assert.equal(rows.length,300);assert.ok(rows.at(-1).balance<1e-6);assert.ok(Math.abs(rows.reduce((s,r)=>s+r.principal,0)-250000)<1e-6);assert.ok(rows.every(r=>r.principal>=0&&r.balance>=0))});
+test('supplement reduces capacity and equity caps borrowing',()=>{const v={income:8000,debts:500,ratio:30,rate:5,years:25,equity:80000,ltv:75};const a=affordability(v),b=affordability({...v,extra:20000});assert.ok(b.byIncome<a.byIncome);assert.ok(a.mortgage<=240000);assert.equal(a.property,a.mortgage+80000);assert.equal(affordability({...v,debts:99999}).mortgage,0)});
+test('savings zero return and one year compound reference',()=>{assert.equal(savings(1000,100,0,1),2200);assert.ok(Math.abs(savings(1000,0,12,1)-1126.825030)<.00001)});
+test('refinance no-change only loses fees',()=>{const r=refinance(100000,5,20,5,20,2000);assert.equal(r.net,-2000);assert.equal(r.breakEven,null)});
+test('car energy and depreciation',()=>{const r=carCost({km:10000,consumption:7,fuel:2,insurance:1000,maintenance:500,fees:100,price:20000,resale:10000,years:5});assert.equal(r.energy,1400);assert.equal(r.depreciation,2000);assert.equal(r.annual,5000);assert.equal(r.perKm,.5)});
+test('invalid loan inputs rejected',()=>{assert.throws(()=>payment(-1,5,10));assert.throws(()=>payment(1000,5,0));assert.throws(()=>payment(1000,-1,10))});

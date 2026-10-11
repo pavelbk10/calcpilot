@@ -1,0 +1,1 @@
+import {guides} from '../../lib/catalog.mjs';import GuideContent from '../../components/GuideContent';export const metadata={title:'מדריכים פיננסיים'};export default function Page(){return <main className="page"><GuideContent guides={guides}/></main>}

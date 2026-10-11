@@ -1,0 +1,51 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {currencies,exchangeSlot,nextExchangeUpdate,isOldQuote,parseRateTable,tableQuote,validateRateTable} from '../src/lib/exchange.mjs';
+import {compatibleValues,encodeSharedScenario,decodeSharedScenario,validWorkspace} from '../src/lib/workspace.mjs';
+import {undoDeletedRecord,validRecordDate,validTrackerData} from '../src/lib/records.mjs';
+test('undo deletion preserves subsequent records and edits',()=>{
+  const deleted={entry:{id:'a',amount:10},index:0};
+  const data={budget:500,entries:[{id:'new',amount:30},{id:'b',amount:25}]};
+  const restored=undoDeletedRecord(data,deleted);
+  assert.deepEqual(restored.entries.map(entry=>entry.id),['a','new','b']);
+  assert.equal(restored.entries[2].amount,25);
+  assert.equal(undoDeletedRecord(restored,deleted),restored);
+  assert.equal(validRecordDate('2026-02-30'),false);
+  assert.equal(validRecordDate('2026-10-11'),true);
+  const record={id:'one',date:'2026-10-11',description:'Food',amount:20,type:'expense',category:'Other'};
+  assert.ok(validTrackerData({budget:4000,entries:[record],vehicles:[]},['Other'],false));
+  assert.equal(validTrackerData({budget:4000,entries:[record,record],vehicles:[]},['Other'],false),false);
+});
+test('shared scenarios validate shape, finite values and target tool',()=>{
+  const template={amount:100,rate:5,name:'example',due:false};
+  const link=encodeSharedScenario('loan',{amount:250});
+  assert.deepEqual(decodeSharedScenario(link,'loan',template),{amount:250});
+  assert.throws(()=>decodeSharedScenario(link,'car',template));
+  assert.equal(compatibleValues({amount:Infinity},template,true),false);
+  assert.equal(compatibleValues({unknown:1},template,true),false);
+  assert.equal(compatibleValues(template,template),true);
+  assert.equal(compatibleValues({tracks:[{id:'one',amount:10}]},{tracks:[{id:'default',amount:1}]}),true);
+  assert.throws(()=>decodeSharedScenario('x'.repeat(12001),'loan',template));
+  assert.equal(validWorkspace('loan',{years:1e9,amount:100}),false);
+  assert.equal(validWorkspace('loan',{years:25,amount:100,rate:5}),true);
+  assert.equal(validWorkspace('financial',{mode:'tvm',unknown:'fv',v:{years:1e9,frequency:12,annualRate:5},discount:8}),false);
+});
+test('exchange schedule has exactly three UTC slots per day',()=>{
+  const midnight=Date.parse('2026-10-11T00:00:00Z');
+  assert.equal(exchangeSlot(midnight),exchangeSlot(midnight+8*3600000-1));
+  assert.equal(exchangeSlot(midnight+8*3600000),exchangeSlot(midnight)+1);
+  assert.equal(exchangeSlot(midnight+16*3600000),exchangeSlot(midnight)+2);
+  assert.equal(nextExchangeUpdate(midnight+1000),midnight+8*3600000);
+});
+test('reference table supports cross rates and uses older publication date',()=>{
+  const rows=currencies.filter(item=>item!=='USD').map(quote=>({base:'USD',quote,rate:quote==='ILS'?3.5:quote==='EUR'?.9:2,date:quote==='EUR'?'2026-10-08':'2026-10-09'}));
+  const table=parseRateTable(rows,Date.parse('2026-10-11T12:00:00Z'));
+  assert.equal(tableQuote(table,'EUR','ILS').rate,3.5/.9);
+  assert.equal(tableQuote(table,'EUR','ILS').date,'2026-10-08');
+  assert.equal(validateRateTable(table,Date.parse('2026-10-11T12:01:00Z')).rates.ILS.rate,3.5);
+  assert.throws(()=>validateRateTable({...table,fetchedAt:Date.now()+86400000}));
+  assert.throws(()=>validateRateTable({...table,rates:{...table.rates,USD:{rate:2}}}));
+  assert.throws(()=>parseRateTable(rows.slice(1)));
+  assert.ok(isOldQuote('2026-10-01',Date.parse('2026-10-11T00:00:00Z')));
+  assert.equal(isOldQuote('2026-10-09',Date.parse('2026-10-11T00:00:00Z')),false);
+});

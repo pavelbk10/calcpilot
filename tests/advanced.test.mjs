@@ -1,0 +1,37 @@
+import {test} from 'node:test';import assert from 'node:assert/strict';import {evaluateExpression,tvm,solveTvm,npv,irr} from '../src/lib/advanced-finance.mjs';import {simulateTrack,simulateMortgage,defaultTracks,defaultForecast,forecastAt} from '../src/lib/mortgage.mjs';import {schedule,payment} from '../src/lib/finance.mjs';
+const near=(a,b,tol=1e-6)=>assert.ok(Math.abs(a-b)<tol,`${a} vs ${b}`);
+import {isAdsenseConfigured,hasAdsenseConsent} from '../src/lib/adsense.mjs';
+test('AdSense stays disabled without explicit production configuration',()=>{
+	const config={enabled:'true',publisherId:'ca-pub-1234567890123456',siteUrl:'https://calcpilot.example'};
+	assert.equal(isAdsenseConfigured(config,'https://calcpilot.example'),true);
+	assert.equal(isAdsenseConfigured({...config,enabled:'false'},'https://calcpilot.example'),false);
+	assert.equal(isAdsenseConfigured({...config,publisherId:''},'https://calcpilot.example'),false);
+	assert.equal(isAdsenseConfigured(config,'http://localhost:3001'),false);
+	assert.equal(isAdsenseConfigured({...config,siteUrl:'http://calcpilot.example'},'http://calcpilot.example'),false);
+	assert.equal(isAdsenseConfigured({...config,siteUrl:'https://localhost'},'https://localhost'),false);
+});
+test('AdSense consent gate fails closed until the CMP confirms permissions',()=>{
+	const data={cmpStatus:'loaded',eventStatus:'useractioncomplete',gdprApplies:true,vendor:{consents:{755:true}},purpose:{consents:{1:true,3:true,4:true,7:true,9:true,10:true}}};
+	assert.equal(hasAdsenseConsent(data),true);
+	assert.equal(hasAdsenseConsent(undefined),false);
+	assert.equal(hasAdsenseConsent({...data,cmpStatus:'loading'}),false);
+	assert.equal(hasAdsenseConsent({...data,eventStatus:'cmpuishown'}),false);
+	assert.equal(hasAdsenseConsent({...data,gdprApplies:undefined}),false);
+	assert.equal(hasAdsenseConsent({...data,vendor:{consents:{755:false}}}),false);
+	assert.equal(hasAdsenseConsent({...data,purpose:{consents:{1:true}}}),false);
+	assert.equal(hasAdsenseConsent({...data,publisher:{restrictions:{1:{755:0}}}}),false);
+	assert.equal(hasAdsenseConsent({cmpStatus:'loaded',eventStatus:'tcloaded',gdprApplies:false}),true);
+});
+const forecast=[{year:1,inflation:0,rateShift:0,prime:6},{year:6,inflation:4,rateShift:2,prime:8}];
+const track={id:'x',type:'fixed',amount:250000,years:25,rate:5,resetYears:5,margin:-.5};
+test('safe arithmetic respects precedence, powers, percentages and unary minus',()=>{assert.equal(evaluateExpression('2 + 3 × 4'),14);assert.equal(evaluateExpression('(2+3)*4'),20);assert.equal(evaluateExpression('2^3^2'),512);assert.equal(evaluateExpression('-2^2'),-4);near(evaluateExpression('100*(1+10%)'),110);assert.equal(evaluateExpression('sqrt(81)+abs(-3)'),12)});
+test('arithmetic rejects code injection, division by zero and invalid domains',()=>{for(const s of ['process.exit()','1/0','sqrt(-1)','2+','2(3)'])assert.throws(()=>evaluateExpression(s))});
+test('TVM zero interest and inversion with end and start payments',()=>{near(tvm({pv:1000,pmt:100,annualRate:0,periods:12}).fv,2200);for(const due of [false,true]){const v={pv:1000,pmt:100,annualRate:6,periods:60,frequency:12,due};v.fv=tvm(v).fv;near(solveTvm(v,'pv'),1000);near(solveTvm(v,'pmt'),100);near(solveTvm(v,'rate'),6)}});
+test('NPV reference and IRR root and no-root case',()=>{near(npv(10,[-1000,1100]),0);near(irr([-1000,1100]),10);assert.equal(irr([100,200]),null);near(npv(0,[-100,20,30]),-50)});
+test('fixed unlinked schedule matches existing amortization engine',()=>{const a=simulateTrack(track,forecast),b=schedule(track.amount,track.rate,track.years);near(a.total,payment(track.amount,5,25)*300);for(let i=0;i<b.length;i++){near(a.rows[i].balance,b[i].balance);near(a.rows[i].payment,b[i].payment)}assert.equal(a.indexation,0)});
+test('fixed rate ignores forecast changes',()=>{const a=simulateTrack(track,forecast),b=simulateTrack(track,[{year:1,inflation:10,rateShift:12,prime:20}]);near(a.total,b.total)});
+test('indexed zero-inflation schedule equals unlinked, positive CPI grows repayment',()=>{const a=simulateTrack({...track,type:'fixed-indexed'},[{year:1,inflation:0,rateShift:0,prime:6}]);const b=simulateTrack({...track,type:'fixed-indexed'},[{year:1,inflation:3,rateShift:0,prime:6}]);near(a.indexation,0);assert.ok(b.total>a.total);assert.ok(b.rows[12].payment>b.rows[0].payment);near(b.total,track.amount+b.interest+b.indexation);near(b.rows.at(-1).balance,0)});
+test('variable changes only at the reset month; prime at forecast year boundary',()=>{const a=simulateTrack({...track,type:'variable'},[{year:1,inflation:0,rateShift:0,prime:6},{year:2,inflation:0,rateShift:2,prime:8}]);assert.equal(a.rows[59].rate,5);assert.equal(a.rows[60].rate,7);const p=simulateTrack({...track,type:'prime'},[{year:1,inflation:0,rateShift:0,prime:6},{year:2,inflation:0,rateShift:0,prime:8}]);assert.equal(p.rows[11].rate,5.5);assert.equal(p.rows[12].rate,7.5);assert.ok(p.rows[12].payment>p.rows[11].payment)});
+test('mixed periods finish independently and totals reconcile including CPI',()=>{const m=simulateMortgage([...defaultTracks,{...track,id:'short',years:1}],defaultForecast);near(m.total,m.amount+m.interest+m.indexation);near(m.total,m.rows.reduce((s,r)=>s+r.payment,0));near(m.rows.at(-1).balance,0);near(m.costPerUnit,m.total/m.amount);assert.equal(m.rows.length,360);assert.ok(m.results.every(r=>r.rows.at(-1).balance<1e-6))});
+test('deflation is explicit and net CPI reconciliation holds',()=>{const a=simulateTrack({...track,type:'fixed-indexed'},[{year:1,inflation:-2,rateShift:0,prime:6}]);assert.ok(a.indexation<0);near(a.total,track.amount+a.interest+a.indexation);near(a.rows.at(-1).balance,0)});
+test('zero principal safe and latest forecast continues after last point',()=>{const a=simulateTrack({...track,amount:0},forecast);assert.equal(a.total,0);assert.equal(a.costPerUnit,0);assert.equal(forecastAt(forecast,40).prime,8);assert.throws(()=>simulateMortgage([],forecast));assert.throws(()=>simulateTrack({...track,years:0},forecast))});
