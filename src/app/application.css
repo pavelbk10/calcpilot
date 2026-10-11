@@ -8,3 +8,4 @@
 .record-search{max-width:500px;margin:12px 0 20px}.calculator-illustration[data-calculator=currency]{color:#416fb0}.calculator-illustration[data-calculator=property-tax]{color:#b4812f}
 @media(max-width:700px){.app-topbar .topbar-location{display:flex}.app-topbar .topbar-location>span{display:none}}
 @media print{.app-sidebar,.app-topbar,.mobile-nav,.app-footer,.skip-link,.guide-toc,.guide-meta button{display:none!important}.app-body{margin:0}.app-content main{max-width:none;padding:0}.app-content .panel{break-inside:avoid;box-shadow:none}.dashboard-tool-grid .tool-card{animation:none}.guide-layout{display:block}.guide-article{max-width:none}}
+.app-footer>div.footer-branding{display:block;flex-basis:100%}.app-footer .footer-branding .brand{font-size:18px}.app-footer .footer-branding p{margin:6px 0 0}

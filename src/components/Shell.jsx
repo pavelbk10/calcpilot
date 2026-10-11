@@ -133,7 +133,7 @@ export default function Shell({ children }) {
       </header>
       <div id="app-content" className="app-content" tabIndex={-1}><PwaControls/>{children}</div>
       <footer className="app-footer">
-        <div>
+        <div className="footer-branding">
           <Link href="/" className="brand">
             <Calculator aria-hidden="true" />
             <span dir="ltr">PB CALC</span>
